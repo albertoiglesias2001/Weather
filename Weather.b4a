@@ -1,0 +1,205 @@
+﻿Version=7.3
+NumberOfModules=2
+Module1=Utility
+Module2=UnitTests
+Build1=Default,com.visualnet.weather
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="5" android:targetSdkVersion="19"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~'End of default text.~\n~
+IconFile=
+NumberOfFiles=2
+File1=icons8-partly-cloudy-day-40.png
+File2=layMain.bal
+NumberOfLibraries=9
+Library1=core
+Library2=json
+Library3=http
+Library4=httputils2
+Library5=preferenceactivity
+Library6=reflection
+Library7=stringutils
+Library8=ime
+Library9=phone
+@EndOfDesignText@
+#Region  Project Attributes 
+	#ApplicationLabel: Weather
+	#VersionCode: 100
+	#VersionName: 1.0.0
+	'SupportedOrientations possible values: unspecified, landscape or portrait.
+	#SupportedOrientations: portrait
+	#CanInstallToExternalStorage: False
+#End Region
+
+#Region  Activity Attributes 
+	#FullScreen: False
+	#IncludeTitle: False
+#End Region
+
+Sub Process_Globals
+	Dim strAPIKey As String = "9921411dc2aec6273662892819bfd890"
+End Sub
+
+Sub Globals
+
+	Dim txtCity As EditText
+	Dim lstCities As ListView
+	Dim objManager As PreferenceManager
+	
+	Private pnlDetail As Panel
+	Private lblWind As Label
+	Private lblPrecipitation As Label
+	Dim strCityData As String 
+	Private lblInfo1 As Label
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	Activity.LoadLayout("layMain")
+	
+	pnlDetail.Left = 110%x
+	pnlDetail.Top = 10dip
+	pnlDetail.Visible = False 
+	
+	ToastMessageShow("Created by Alberto Iglesias - 06/12/2017",True)
+End Sub
+
+Sub Activity_Resume
+	
+	If Utility.GetAirplaneMode = True Then
+		Msgbox("Check your Internet before use this app!","Attention")
+	Else
+		SU_LoadCities
+	End If
+End Sub
+
+Sub Activity_Pause (UserClosed As Boolean)
+
+End Sub
+
+Sub SU_LoadCities
+	
+	Dim mapCities As Map = objManager.GetAll
+	Dim strCity, strCityValue, strValue, strName, strTemperature As String
+	Dim strID, strData, strWind, strHum As String
+	
+	lstCities.Clear
+	lstCities.TwoLinesAndBitmap.SecondLabel.TextColor = Colors.Yellow
+	lstCities.TwoLinesAndBitmap.SecondLabel.TextSize = 16
+
+	For i=0 To mapCities.Size-1
+		strValue = mapCities.GetKeyAt(i)
+		strCity = Utility.FU_Parametros(strValue,1,"_")
+
+		If strCity = "City" Then
+		   strID = Utility.FU_Parametros(strValue,2,"_")
+		   strCityValue = mapCities.GetValueAt(i)
+		   strName = Utility.FU_Parametros(strCityValue,1,"|")
+		   strTemperature = Utility.FU_Parametros(strCityValue,2,"|") & " °C"
+		   strWind= Utility.FU_Parametros(strCityValue,3,"|")
+		   strHum = Utility.FU_Parametros(strCityValue,4,"|")
+		   strData = strID & "|" & strName & "|" & strTemperature  & "|" & strWind & "|" & strHum
+		   
+		   If strName<> "" Then 
+				lstCities.AddTwoLinesAndBitmap2(strName,strTemperature,LoadBitmap(File.DirAssets,"icons8-partly-cloudy-day-40.png"),strData)
+		   End If 
+
+		End If
+	Next
+	
+End Sub
+
+Sub JobDone (Job As HttpJob)
+
+	If Job.Success = True Then
+		LogColor(Job.GetString,Colors.Red)
+		ParserWeather(Job.GetString)
+		txtCity.Text = ""
+		Msgbox("The city was added with success!","Attention")
+	Else 
+		Msgbox("Check the name of City and try again, please!","Attention")	
+	End If
+	
+End Sub
+
+Sub ParserWeather(jsontext As String)  'ignore
+   
+	Dim Parser As JSONParser
+	Parser.Initialize(jsontext)
+	Dim root As Map = Parser.NextObject
+
+	Dim strCity As String = root.Get("name")
+	Dim strID As String = root.Get("id")
+	
+	Dim weather As List = root.Get("weather")
+	For Each colweather As Map In weather
+
+		Dim pWind As Map = root.Get("wind")
+		Dim pWindSpeed As Double = pWind.Get("speed")
+		
+		Dim mainTemp As Map = root.Get("main")
+		Dim strTemp As String = mainTemp.Get("temp")
+		Dim strHumidity As String = mainTemp.Get("humidity")
+		SU_AddCity(strID,strCity, strTemp,pWindSpeed,strHumidity)
+	Next
+
+End Sub
+
+Sub SU_AddCity(pID As String , pCity As String, pTemp As String, pWind As String, pHumidity As String )
+	
+	Utility.FU_Config("City_" & pID,pCity & "|" & pTemp & "|" & pWind & "|" & pHumidity)
+	SU_LoadCities
+	
+End Sub
+
+Sub imgAdd_Click
+	
+	If txtCity.Text.Trim = "" Then 
+		Msgbox("Type the city, please!","Attention")
+		txtCity.RequestFocus
+		Return
+	End If
+	
+	SU_DownloadWeather(txtCity.Text.Trim)
+	
+	lstCities.RequestFocus
+	Utility.SU_DismissKeyboard
+	
+End Sub
+
+Sub SU_DownloadWeather(pCity As String)
+
+	Dim SU As StringUtils
+	Dim strSearch As String = SU.EncodeUrl(pCity, "UTF8")
+
+	Dim job As HttpJob
+	job.Initialize("WE",Me)
+	job.Download("http://api.openweathermap.org/data/2.5/weather?q=" & strSearch & "&units=metric&appid=" & strAPIKey)
+	
+End Sub
+
+Sub lstCities_ItemClick (Position As Int, Value As Object)
+	
+	strCityData = Value
+	lblWind.Text = Utility.FU_Parametros(strCityData,4,"|") & " meter/sec"
+	lblPrecipitation.Text = Utility.FU_Parametros(strCityData,5,"|") & " %"
+	pnlDetail.Left = 110%x
+	pnlDetail.Visible = True 
+	pnlDetail.SetLayoutAnimated(1000,(100%x/2)-(pnlDetail.Width/2),(100%y/2)-(pnlDetail.Height/2),pnlDetail.Width,pnlDetail.Height)
+	strCityData = Value
+	
+End Sub
+
+Sub imgClose_Click
+	pnlDetail.Visible = False 
+	pnlDetail.Top = 10dip
+	pnlDetail.Left = 110%x
+End Sub
+
+Sub imgDelete_Click
+
+	Dim strID As String = Utility.FU_Parametros(strCityData,1,"|")
+	If Msgbox2("Delete this city?","Confirm" ,"OK","","Cancel",Null) = DialogResponse.POSITIVE Then
+		Utility.FU_Config("City_" & strID,"")
+		ToastMessageShow("City Deleted!",False)
+		imgClose_Click
+		SU_LoadCities
+	End If
+	
+End Sub
